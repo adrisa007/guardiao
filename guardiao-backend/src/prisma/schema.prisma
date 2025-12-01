@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================
+// 1. CONTROLADORAS (multi-tenant)
+model Controladora {
+  id            String    @id @default(uuid())
+  razaoSocial   String
+  cnpj          String    @unique @db.Char(14)
+  nomeFantasia  String?
+  ativo         Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  usuarios      Usuario[]
+  prestadores   Prestador[]
+  tiposConsentimento TipoConsentimento[]
+  incidentes    IncidenteSeguranca[]
+  ripds         RipdDpia[]
+}
+
+// =====================================================
+// 2. USUÁRIOS
+model Usuario {
+  id                   String    @id @default(uuid())
+  controladoraId       String?
+  controladora         Controladora? @relation(fields: [controladoraId], references: [id])
+  tipo                 String    // ROOT, DPO, COLABORADOR, PRESTADOR, TITULAR
+  nome                 String
+  email                String    @unique
+  cpf                  String?   @db.Char(11)
+  senhaHash            String
+  mfaSecret            String?
+  termoConfidAssinado  Boolean   @default(false)
+  termoDataAssinatura  DateTime?
+  termoValidade        Date?
+  ultimoLogin          DateTime?
+  ativo                Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+
+  // Relações polimórficas
+  dpo                  Dpo?
+  colaboradorInterno   ColaboradorInterno?
+  titular              Titular?
+  funcionarioPrestador FuncionarioPrestador?
+
+  consentimentosCadastrados Consentimento[] @relation("colaborador")
+  assinaturasTermo     AssinaturaTermo[]
+  logsConsulta         LogConsultaPrestadorCnpj[]
+  incidentesRegistrados IncidenteSeguranca[] @relation("responsavelRegistro")
+  ripdsElaborados      RipdDpia[] @relation("elaborador")
+}
+
+// =====================================================
+// 3. PERFIS ESPECÍFICOS
+model Dpo {
+  usuarioId     String   @id
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  certificacao  String?
+}
+
+model ColaboradorInterno {
+  usuarioId    String   @id
+  usuario      Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  departamento String?
+}
+
+model Titular {
+  id            String    @id @default(uuid())
+  usuarioId     String?   @unique
+  usuario       Usuario?  @relation(fields: [usuarioId], references: [id])
+  cpf           String    @unique @db.Char(11)
+  dataNascimento Date?
+  menorIdade    Boolean   @default(false)
+
+  consentimentos Consentimento[]
+  dsars          DsarRequest[]
+  descartes      DescarteDados[]
+}
+
+// =====================================================
+// 4. PRESTADORES (OPERADORES)
+model Prestador {
+  id              String    @id @default(uuid())
+  controladoraId  String
+  controladora    Controladora @relation(fields: [controladoraId], references: [id])
+  razaoSocial     String
+  cnpj            String    @db.Char(14)
+  escopoTratamento String?
+  dataInicio      Date
+  dataFim         Date?
+  statusAprovacao String    @default("PENDENTE")
+
+  funcionarios    FuncionarioPrestador[]
+  logsConsulta    LogConsultaPrestadorCnpj[]
+}
+
+model FuncionarioPrestador {
+  id                    String    @id @default(uuid())
+  prestadorId           String
+  prestador             Prestador @relation(fields: [prestadorId], references: [id])
+  usuarioId             String
+  usuario               Usuario   @relation(fields: [usuarioId], references: [id])
+  termoSolidarioAssinado Boolean  @default(false)
+  dataAssinatura        DateTime?
+}
+
+// =====================================================
+// 5. CATÁLOGOS LGPD
+model BaseLegal {
+  id              String    @id @default(uuid())
+  codigo          String    @unique // ex: ART7_I
+  artigo          String
+  inciso          String?
+  descricao       String
+  exigeComprovante Boolean  @default(true)
+  ativo           Boolean   Boolean   @default(true)
+
+  consentimentos  Consentimento[]
+  tiposConsentimento TipoConsentimento[]
+}
+
+model TipoConsentimento {
+  id                  String    @id @default(uuid())
+  controladoraId      String
+  controladora        Controladora @relation(fields: [controladoraId], references: [id])
+  codigo              String    @unique
+  nome                String
+  descricao           String?
+  baseLegalPadrao     String?
+  baseLegal           BaseLegal? @relation(fields: [baseLegalPadrao], references: [codigo])
+  prazoRetencaoMeses  Int?
+  justificativaRetencao String?
+  anonimizarApos      Boolean   @default(false)
+  eliminarApos        Boolean   @default(true)
+  exigeProvaFisica    Boolean   @default(false)
+  ativo               Boolean   @default(true)
+
+  consentimentos      Consentimento[]
+}
+
+// =====================================================
+// 6. CONSENTIMENTOS
+model Consentimento {
+  id                     String    @id @default(uuid())
+  titularId              String
+  titular                Titular   @relation(fields: [titularId], references: [id])
+  colaboradorId          String?
+  colaborador            Usuario?  @relation("colaborador", fields: [colaboradorId], references: [id])
+  tipoConsentimentoId    String?
+  tipoConsentimento      TipoConsentimento? @relation(fields: [tipoConsentimentoId], references: [id])
+  baseLegalId            String
+  baseLegal              BaseLegal @relation(fields: [baseLegalId], references: [id])
+  canalColeta            String?
+  classificacaoDados     String[]
+  documentosSolicitados  String[]  @default([])
+  localArmazenamento     String?
+  anexoProva             String?
+  dataColeta             DateTime  @default(now())
+  dataRevogacao         DateTime?
+  ativo                  Boolean   @default(true)
+}
+
+// =====================================================
+// 7. DSAR, DESCARTE, INCIDENTES, RIPD, TERMOS
+model DsarRequest {
+  id            String    @id @default(uuid())
+  titularId     String
+  titular       Titular   @relation(fields: [titularId], references: [id])
+  tipoDireito   String
+  protocolo     String    @unique
+  status        String    @default("ABERTO")
+  dataSolicitacao DateTime @default(now())
+  dataResposta  DateTime?
+}
+
+model DescarteDados {
+  id             String    @id @default(uuid())
+  titularId      String
+  titular        Titular   @relation(fields: [titularId], references: [id])
+  categoria      String
+  status         String    @default("ATIVO")
+  dataAgendada  Date?
+  dataExecucao   DateTime?
+  metodo         String?
+  hashComprovante String?
+}
+
+model IncidenteSeguranca {
+  id                  String    @id @default(uuid())
+  protocolo           String    @unique
+  controladoraId      String
+  controladora        Controladora @relation(fields: [controladoraId], references: [id])
+  titulo              String
+  descricao           String
+  dataDescoberta      DateTime  @default(now())
+  dataIncidente       DateTime?
+  classificacaoRisco  String
+  categoriasDados     String[]
+  status              String    @default("IDENTIFICADO")
+  responsavelRegistroId String
+  responsavelRegistro   Usuario   @relation("responsavelRegistro", fields: [responsavelRegistroId], references: [id])
+  encarregadoDpoId    String?
+  comunicadoAnpd      Boolean   @default(false)
+  comunicadoTitulares Boolean @default(false)
+  anexos              String[]
+  hashIncidente       String    @unique
+}
+
+model RipdDpia {
+  id                  String    @id @default(uuid())
+  protocolo           String    @unique
+  controladoraId      String
+  controladora        Controladora @relation(fields: [controladoraId], references: [id])
+  tipo                String    // RIPD ou DPIA
+  titulo              String
+  descricaoTratamento String
+  categoriasDados     String[]
+  riscoResidual       String?
+  status              String    @default("RASCUNHO")
+  elaboradorId        String
+  elaborador          Usuario   @relation("elaborador", fields: [elaboradorId], references: [id])
+  aprovadorId         String?
+  dataAprovacao       DateTime?
+  revisaoAnual        Date?
+  anexos              String[]
+  hashRipd               String    @unique
+}
+
+model TermoConfidencialidade {
+  id                     String    @id @default(uuid())
+  versao                 String
+  tipoUsuario            String    // DPO, COLABORADOR, PRESTADOR
+  conteudo               String
+  hashConteudo           String    @unique
+  dataPublicacao         Date
+  dataExpiracao          Date?
+  responsabilidadeSolidaria Boolean @default(false)
+  ativo                  Boolean   @default(true)
+
+  assinaturas            AssinaturaTermo[]
+}
+
+model AssinaturaTermo {
+  id           String    @id @default(uuid())
+  termoId      String
+  termo        TermoConfidencialidade @relation(fields: [termoId], references: [id])
+  usuarioId    String
+  usuario      Usuario   @relation(fields: [usuarioId], references: [id])
+  ipAssinatura String
+  dataAssinatura DateTime @default(now())
+  dataValidade   Date
+  revogado       Boolean   @default(false)
+  hashAssinatura String    @unique
+
+  @@unique([usuarioId, termoId])
+}
+
+model LogConsultaPrestadorCnpj {
+  id                   String    @id @default(uuid())
+  usuarioId            String
+  usuario              Usuario   @relation(fields: [usuarioId], references: [id])
+  cnpjConsultado       String    @db.Char(14)
+  prestadorEncontrado  Boolean
+  prestadorId          String?
+  prestador            Prestador? @relation(fields: [prestadorId], references: [id])
+  statusContrato       String?
+  percentualFuncionariosOk Int?
+  ipConsulta           String
+  dataConsulta         DateTime  @default(now())
+  hashRegistro         String    @unique
+}
+
+model AuditoriaGlobal {
+  id           String   @id @default(uuid())
+  usuarioId    String?
+  usuario      Usuario? @relation(fields: [usuarioId], references: [id])
+  tabelaAfetada String
+  acao         String
+  dadosAntes   Json?
+  dadosDepois  Json?
+  ipAddress    String?
+  timestamp    DateTime @default(now())
+  hashRegistro String   @unique
+}
