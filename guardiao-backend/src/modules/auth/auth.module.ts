@@ -13,41 +13,37 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { MfaGuard } from './guards/mfa.guard';
+import { AuthAuditInterceptor } from './interceptors/auth-audit.interceptor';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Module({
   imports: [
-    // Configuração global de variáveis de ambiente
     ConfigModule,
 
-    // Passport (JWT + Refresh)
+    // Passport + JWT
     PassportModule.register({ defaultStrategy: 'jwt' }),
 
-    // JWT Access Token (15 minutos)
+    // Access Token (15 minutos)
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') || 'fallback-jwt-secret-2025-change-immediately',
-        signOptions: {
-          expiresIn: '15m',
-        },
+        secret: config.get<string>('JWT_SECRET') || 'fallback-jwt-secret-2025-mude-imediatamente',
+        signOptions: { expiresIn: '15m' },
       }),
     }),
 
-    // JWT Refresh Token (7 dias) – estratégia separada
+    // Refresh Token (7 dias) – estratégia separada
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_REFRESH_SECRET') || config.get<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: '7d',
-        },
+        signOptions: { expiresIn: '7d' },
       }),
     }),
 
-    // Mailer – para enviar QR Code MFA por e-mail
+    // Mailer – envio de QR Code MFA + backup codes
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -80,6 +76,12 @@ import { PrismaService } from '../../prisma/prisma.service';
     RolesGuard,
     MfaGuard,
     PrismaService,
+
+    // Auditoria automática em todas as ações de auth
+    {
+      provide: 'APP_INTERCEPTOR',
+      useClass: AuthAuditInterceptor,
+    },
   ],
   exports: [
     AuthService,

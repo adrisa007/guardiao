@@ -17,7 +17,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { Response } from 'express';
+import { Response, Request } from 'express';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -30,7 +30,7 @@ import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
-import { UserRole } from '../common/enums/user-role.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 
 @ApiTags('Autenticação')
 @Controller('auth')
@@ -47,6 +47,7 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
 
+    // Caso MFA esteja ativo mas ainda não verificado
     if (result.mfaRequired) {
       return {
         success: true,
@@ -55,7 +56,7 @@ export class AuthController {
       };
     }
 
-    // Refresh token como cookie httpOnly
+    // Define refresh token como cookie httpOnly (segurança máxima)
     res.cookie('refresh_token', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -68,7 +69,7 @@ export class AuthController {
       success: true,
       message: 'Login realizado com sucesso',
       access_token: result.accessToken,
-      expires_in: 900,
+      expires_in: 900, // 15 minutos
       user: result.user,
     };
   }
@@ -95,12 +96,16 @@ export class AuthController {
   // ===============================
   @Post('refresh')
   @ApiOperation({ summary: 'Renovar access_token usando refresh_token' })
-  async refresh(@Body() dto: RefreshTokenDto, @Req() req: any, @Res({ passthrough: true }) res: Response) {
-    const token = dto.refresh_token || req.cookies?.refresh_token;
-    if (!token) throw new UnauthorizedException('Refresh token não fornecido');
+  async refresh(@Body() dto: RefreshTokenDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = dto.refresh_token || (req.cookies?.refresh_token as string);
+
+    if (!token) {
+      throw new UnauthorizedException('Refresh token não fornecido');
+    }
 
     const result = await this.authService.refreshToken(token);
 
+    // Atualiza o cookie com novo refresh token
     res.cookie('refresh_token', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -122,9 +127,11 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout – invalida refresh token' })
-  async logout(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = req.cookies?.refresh_token;
-    if (token) await this.authService.invalidateRefreshToken(token);
+    if (token) {
+      await this.authService.invalidateRefreshToken(token);
+    }
 
     res.clearCookie('refresh_token', {
       httpOnly: true,
@@ -136,7 +143,7 @@ export class AuthController {
   }
 
   // ===============================
-  // 5. ME (PERFIL)
+  // 5. PERFIL DO USUÁRIO
   // ===============================
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
@@ -154,7 +161,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Alterar senha do usuário logado' })
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    await this.authService.changePassword(req.user.id, dto.currentPassword, dto.newPassword);
+    await this.authService.changePassword(req.user.id, dto.currentPassword, dto.password);
     return { success: true, message: 'Senha alterada com sucesso' };
   }
 
@@ -164,12 +171,12 @@ export class AuthController {
   @Post('mfa/enable')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Habilita MFA (Google Authenticator)' })
-  async enableMfa(@Req() req: any) {
-    const result = await this.authService.enableMfa(req.user.id);
+  @ApiOperation({ summary: 'Habilita MFA (Google Authenticator / Authy)' })
+  async enableMfa(@Req() req: any, @Body() dto: EnableMfaDto) {
+    const result = await this.authService.enableMfa(req.user.id, dto);
     return {
       success: true,
-      message: 'Escaneie o QR Code no seu app autenticador',
+      message: 'Escaneie o QR Code no seu aplicativo autenticador',
       data: result,
     };
   }
@@ -195,6 +202,6 @@ export class AuthController {
   @ApiOperation({ summary: 'Desabilita MFA (exige código atual)' })
   async disableMfa(@Req() req: any, @Body() dto: VerifyMfaDto) {
     await this.authService.disableMfa(req.user.id, dto.code);
-    return { success: true, message: 'MFA desativado' };
+    return { success: true, message: 'MFA desativado com sucesso' };
   }
 }

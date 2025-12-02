@@ -1,215 +1,314 @@
-// src/modules/auth/auth.service.spec.ts
-import { Test, TestingModule } from '@nestjs/testing';
+// src/modules/auth/auth.service.ts
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { AuthService } from './auth.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MailerService } from '@nestjs-modules/mailer';
 import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
+import * as qrcode from 'qrcode';
+import { randomUUID } from 'crypto';
 
-jest.mock('bcrypt');
-jest.mock('otplib');
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { EnableMfaDto } from './dto/enable-mfa.dto';
+import { VerifyMfaDto } from './dto/verify-mfa.dto';
 
-describe('AuthService - Unit Tests', () => {
-  let service: AuthService;
-  let prisma: PrismaService;
-  let jwtService: JwtService;
+interface JwtPayload {
+  sub: string;
+  email: string;
+  tipo: string;
+  controladoraId?: string;
+}
 
-  const mockPrisma = {
-    usuario: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      findFirst: jest.fn(),
-    },
-  };
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly refreshTokenBlacklist = new Set<string>(); // Em produção: use Redis
 
-  const mockJwtService = {
-    sign: jest.fn(),
-  };
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly mailer: MailerService,
+  ) {}
 
-  const mockConfigService = {
-    get: jest.fn(),
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AuthService,
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: JwtService, useValue: mockJwtService },
-        { provide: ConfigService, useValue: mockConfigService },
-      ],
-    }).compile();
-
-    service = module.get<AuthService>(AuthService);
-    prisma = module.get<PrismaService>(PrismaService);
-    jwtService = module.get<JwtService>(JwtService);
-
-    jest.clearAllMocks();
-  });
-
-  describe('login()', () => {
-    it('deve fazer login com sucesso quando credenciais corretas', async () => {
-      const mockUser = {
-        id: 'usr_123',
-        email: 'dpo@teste.com',
-        nome: 'DPO Teste',
-        senhaHash: 'hashed-password',
-        tipo: 'DPO',
-        controladoraId: 'ctrl_001',
+  // ====================== LOGIN ======================
+  async login(dto: LoginDto) {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { email: dto.email.toLowerCase() },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        senhaHash: true,
+        tipo: true,
+        controladoraId: true,
         ativo: true,
+        bloqueado: true,
         termoConfidAssinado: true,
-        mfaSecret: null,
-      };
-
-      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-      mockJwtService.sign.mockReturnValue('jwt-access-token');
-      (global as any).crypto.randomUUID = jest.fn(() => 'refresh-token-uuid');
-
-      const result = await service.login({
-        email: 'dpo@teste.com',
-        password: 'Senha@2025',
-      });
-
-      expect(result.accessToken).toBe('jwt-access-token');
-      expect(result.refreshToken).toBe('refresh-token-uuid');
-      expect(result.user.email).toBe('dpo@teste.com');
-      expect(result.user.mfaEnabled).toBe(false);
+        termoValidade: true,
+        mfaSecret: true,
+      },
     });
 
-    it('deve exigir MFA quando mfaSecret existe', async () => {
-      const mockUser = {
-        id: 'usr_123',
-        email: 'dpo@teste.com',
-        senhaHash: 'hashed',
+    if (!usuario) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    if (!usuario.ativo || usuario.bloqueado) {
+      throw new UnauthorizedException('Conta desativada ou bloqueada');
+    }
+
+    const senhaValida = await bcrypt.compare(dto.password, usuario.senhaHash);
+    if (!senhaValida) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    // Verifica termo de confidencialidade (LGPD Art. 46)
+    if (!usuario.termoConfidAssinado) {
+      throw new ForbiddenException('Termo de confidencialidade não assinado');
+    }
+    if (usuario.termoValidade && new Date(usuario.termoValidade) < new Date()) {
+      throw new ForbiddenException('Termo de confidencialidade vencido');
+    }
+
+    // Atualiza último login
+    await this.prisma.usuario.update({
+      where: { id: usuario.id },
+      data: { ultimoLogin: new Date() },
+    });
+
+    // MFA obrigatório se habilitado
+    if (usuario.mfaSecret) {
+      return {
+        mfaRequired: true,
+        message: 'Código MFA necessário',
+      };
+    }
+
+    const payload: JwtPayload = {
+      sub: usuario.id,
+      email: usuario.email,
+      tipo: usuario.tipo,
+      controladoraId: usuario.controladoraId,
+    };
+
+    return {
+      accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
+      refreshToken: this.generateRefreshToken(usuario.id),
+      user: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        tipo: usuario.tipo,
+        controladoraId: usuario.controladoraId,
+        mfaEnabled: !!usuario.mfaSecret,
+      },
+    };
+  }
+
+  // ====================== REGISTER ======================
+  async register(dto: RegisterDto) {
+    const existe = await this.prisma.usuario.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+
+    if (existe) throw new ConflictException('E-mail já cadastrado');
+
+    const senhaHash = await bcrypt.hash(dto.password, 12);
+
+    const usuario = await this.prisma.usuario.create({
+      data: {
+        nome: dto.nome.trim(),
+        email: dto.email.toLowerCase(),
+        senhaHash,
+        tipo: dto.tipo,
+        controladoraId: dto.controladoraId,
         ativo: true,
-        termoConfidAssinado: true,
-        mfaSecret: 'JBSWY3DPEHPK3PXP',
-      };
-
-      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-
-      const result = await service.login({
-        email: 'dpo@teste.com',
-        password: 'Senha@2025',
-      });
-
-      expect(result.mfaRequired).toBe(true);
-      expect(result.message).toBe('Código MFA necessário');
+        termoConfidAssinado: false,
+      },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        tipo: true,
+        controladoraId: true,
+      },
     });
 
-    it('deve rejeitar senha incorreta', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue({ senhaHash: 'hash' });
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+    this.logger.log(`Usuário criado: ${usuario.email} (${usuario.tipo})`);
 
-      await expect(
-        service.login({ email: 'dpo@teste.com', password: 'errada' }),
-      ).rejects.toThrow('Credenciais inválidas');
-    });
-  });
+    return usuario;
+  }
 
-  describe('register()', () => {
-    it('deve criar usuário com sucesso', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
-      mockPrisma.usuario.create.mockResolvedValue({
-        id: 'usr_new',
-        nome: 'Novo Usuário',
-        email: 'novo@teste.com',
-        tipo: 'COLABORADOR',
-      });
+  // ====================== REFRESH TOKEN ======================
+  private generateRefreshToken(userId: string): string {
+    const token = randomUUID();
+    this.refreshTokenBlacklist.add(token);
 
-      const result = await service.register({
-        nome: 'Novo Usuário',
-        email: 'novo@teste.com',
-        password: 'Senha@2025',
-        tipo: 'COLABORADOR',
-        controladoraId: 'ctrl_001',
-      });
+    // Expira em 7 dias
+    setTimeout(() => this.refreshTokenBlacklist.delete(token), 7 * 24 * 60 * 60 * 1000);
 
-      expect(result.email).toBe('novo@teste.com');
-      expect(mockPrisma.usuario.create).toHaveBeenCalled();
+    return token;
+  }
+
+  async refreshToken(oldToken: string) {
+    if (!this.refreshTokenBlacklist.has(oldToken)) {
+      throw new UnauthorizedException('Refresh token inválido ou expirado');
+    }
+
+    this.refreshTokenBlacklist.delete(oldToken);
+
+    const usuario = await this.prisma.usuario.findFirst({
+      where: { ativo: true },
+      select: { id: true, email: true, tipo: true, controladoraId: true },
     });
 
-    it('deve rejeitar e-mail duplicado', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue({ email: 'existe@teste.com' });
+    if (!usuario) throw new UnauthorizedException();
 
-      await expect(
-        service.register({
-          nome: 'Teste',
-          email: 'existe@teste.com',
-          password: 'Senha@2025',
-          tipo: 'COLABORADOR',
-          controladoraId: 'ctrl_001',
-        }),
-      ).rejects.toThrow('E-mail já cadastrado');
-    });
-  });
+    const payload: JwtPayload = {
+      sub: usuario.id,
+      email: usuario.email,
+      tipo: usuario.tipo,
+      controladoraId: usuario.controladoraId,
+    };
 
-  describe('enableMfa()', () => {
-    it('deve gerar QR Code e secret', async () => {
-      const mockUser = { id: 'usr_123', email: 'dpo@teste.com' };
-      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
-      (authenticator.generateSecret as jest.Mock).mockReturnValue('JBSWY3DPEHPK3PXP');
-      (authenticator.keyuri as jest.Mock).mockReturnValue('otpauth://...');
+    return {
+      accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
+      refreshToken: this.generateRefreshToken(usuario.id),
+    };
+  }
 
-      const result = await service.enableMfa('usr_123');
+  async invalidateRefreshToken(token: string) {
+    this.refreshTokenBlacklist.delete(token);
+  }
 
-      expect(result.qrCode).toContain('data:image/png;base64');
-      expect(result.secret).toBe('JBSWY3DPEHPK3PXP');
-      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
-        where: { id: 'usr_123' },
-        data: { mfaSecretTemp: 'JBSWY3DPEHPK3PXP' },
-      });
-    });
-  });
-
-  describe('verifyAndActivateMfa()', () => {
-    it('deve ativar MFA com código válido', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue({
-        mfaSecretTemp: 'JBSWY3DPEHPK3PXP',
-      });
-      (authenticator.check as jest.Mock).mockReturnValue(true);
-
-      await expect(
-        service.verifyAndActivateMfa('usr_123', '123456'),
-      ).resolves.toBeUndefined();
-
-      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
-        where: { id: 'usr_123' },
-        data: { mfaSecret: 'JBSWY3DPEHPK3PXP', mfaSecretTemp: null },
-      });
+  // ====================== CHANGE PASSWORD ======================
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { senhaHash: true },
     });
 
-    it('deve rejeitar código inválido', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue({
-        mfaSecretTemp: 'JBSWY3DPEHPK3PXP',
-      });
-      (authenticator.check as jest.Mock).mockReturnValue(false);
+    if (!usuario) throw new BadRequestException('Usuário não encontrado');
 
-      await expect(
-        service.verifyAndActivateMfa('usr_123', '000000'),
-      ).rejects.toThrow('Código MFA inválido');
+    const senhaValida = await bcrypt.compare(currentPassword, usuario.senhaHash);
+    if (!senhaValida) throw new UnauthorizedException('Senha atual incorreta');
+
+    const novaHash = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.usuario.update({
+      where: { id: userId },
+      data: { senhaHash: novaHash },
     });
-  });
 
-  describe('changePassword()', () => {
-    it('deve alterar senha com sucesso', async () => {
-      mockPrisma.usuario.findUnique.mockResolvedValue({ senhaHash: 'old-hash' });
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
+    this.logger.log(`Senha alterada para usuário ${userId}`);
+  }
 
-      await expect(
-        service.changePassword('usr_123', 'SenhaAtual@2025', 'NovaSenha@2025!'),
-      ).resolves.toBeUndefined();
+  // ====================== MFA – HABILITAR ======================
+  async enableMfa(userId: string, dto: EnableMfaDto = {}) {
+    const usuario = await this.prisma.usuario.findUnique({ where: { id: userId } });
+    if (!usuario) throw new BadRequestException('Usuário não encontrado');
 
-      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
-        where: { id: 'usr_123' },
-        data: { senhaHash: 'new-hashed-password' },
-      });
+    const secret = authenticator.generateSecret();
+    const appName = dto.appName || `Guardião LGPD - ${usuario.nome.split(' ')[0]}`;
+    const otpauth = authenticator.keyuri(usuario.email, appName, secret);
+    const qrCode = await qrcode.toDataURL(otpauth);
+
+    // Gera 10 códigos de backup
+    const backupCodes = Array.from({ length: 10 }, () =>
+      `${randomUUID().slice(0, 4).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}`,
+    );
+
+    // Salva secret temporário e backup codes
+    await this.prisma.usuario.update({
+      where: { id: userId },
+      data: {
+        mfaSecretTemp: secret,
+        mfaBackupCodes: backupCodes,
+      },
     });
-  });
-});
+
+    );
+
+    // Envia e-mail com QR Code
+    await this.mailer.sendMail({
+      to: dto.email || usuario.email,
+      subject: 'Ative a Autenticação de Dois Fatores – Guardião LGPD',
+      template: './mfa-qrcode',
+      context: {
+        nome: usuario.nome,
+        qrCode,
+        secret,
+        backupCodes,
+        appUrl: this.configService.get('FRONTEND_URL') || 'https://app.guardiao.com.br',
+      },
+    });
+
+    return { qrCode, secret, backupCodes };
+  }
+
+  // ====================== MFA – VERIFICAR E ATIVAR ======================
+  async verifyAndActivateMfa(userId: string, code: string) {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { mfaSecretTemp: true, mfaBackupCodes: true },
+    });
+
+    if (!usuario?.mfaSecretTemp) {
+      throw new BadRequestException('MFA não foi iniciado');
+    }
+
+    const isValid = authenticator.check(code, usuario.mfaSecretTemp) ||
+      usuario.mfaBackupCodes?.includes(code);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Código MFA ou backup inválido');
+    }
+
+    await this.prisma.usuario.update({
+      where: { id: userId },
+      data: {
+        mfaSecret: usuario.mfaSecretTemp,
+        mfaSecretTemp: null,
+        // Remove código usado da lista de backup
+        mfaBackupCodes: usuario.mfaBackupCodes?.filter(c => c !== code) || null,
+      },
+    });
+
+    this.logger.log(`MFA ativado com sucesso para usuário ${userId}`);
+  }
+
+  // ====================== MFA – DESABILITAR ======================
+  async disableMfa(userId: string, code: string) {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { mfaSecret: true },
+    });
+
+    if (!usuario?.mfaSecret) {
+      throw new BadRequestException('MFA não está ativo');
+    }
+
+    const isValid = authenticator.check(code, usuario.mfaSecret);
+    if (!isValid) {
+      throw new UnauthorizedException('Código inválido');
+    }
+
+    await this.prisma.usuario.update({
+      where: { id: userId },
+      data: { mfaSecret: null, mfaBackupCodes: null },
+    });
+
+    this.logger.log(`MFA desativado para usuário ${userId}`);
+  }
+}
