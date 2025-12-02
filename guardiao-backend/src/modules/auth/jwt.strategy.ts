@@ -1,23 +1,31 @@
 // src/modules/auth/strategies/jwt.strategy.ts
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'fallback-secret-mude-imediatamente-2025',
+      secretOrKey: configService.get<string>('JWT_SECRET') || 'fallback-secret-change-immediately-2025',
       passReqToCallback: false,
     });
   }
 
   /**
-   * Validação completa do JWT (executada em TODAS as rotas protegidas)
-   * @param payload Conteúdo do JWT (sub, email, tipo, etc.)
+   * Validação completa do JWT – executada em TODAS as rotas protegidas
+   * Verifica: existência, ativação, termo de confidencialidade, bloqueio
    */
   async validate(payload: {
     sub: string;
@@ -27,7 +35,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     iat?: number;
     exp?: number;
   }) {
-    // 1. Busca o usuário no banco com dados críticos
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: payload.sub },
       select: {
@@ -37,26 +44,28 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         tipo: true,
         controladoraId: true,
         ativo: true,
+        bloqueado: true,
         termoConfidAssinado: true,
         termoValidade: true,
-        bloqueado: true,
       },
     });
 
-    // 2. Validações de segurança obrigatórias
+    // 1. Usuário não encontrado
     if (!usuario) {
-      throw new UnauthorizedException('Usuário não encontrado');
+      throw new UnauthorizedException('Token inválido: usuário não encontrado');
     }
 
+    // 2. Conta desativada
     if (!usuario.ativo) {
       throw new UnauthorizedException('Conta desativada');
     }
 
+    // 3. Conta bloqueada por administrador
     if (usuario.bloqueado) {
       throw new ForbiddenException('Conta bloqueada por administrador');
     }
 
-    // 3. Verifica termo de confidencialidade (obrigatório pela LGPD)
+    // 4. Termo de confidencialidade obrigatório (LGPD Art. 46)
     if (!usuario.termoConfidAssinado) {
       throw new ForbiddenException('Termo de confidencialidade não assinado');
     }
@@ -65,7 +74,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new ForbiddenException('Termo de confidencialidade vencido');
     }
 
-    // 4. Retorna o usuário limpo para req.user
+    // Retorna usuário limpo para req.user
     return {
       id: usuario.id,
       email: usuario.email,

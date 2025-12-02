@@ -72,7 +72,7 @@ export class AuthService {
       data: { ultimoLogin: new Date() },
     });
 
-    // Se MFA habilitado, exige código
+    // MFA obrigatório se habilitado
     if (usuario.mfaSecret) {
       return {
         mfaRequired: true,
@@ -107,9 +107,7 @@ export class AuthService {
       where: { email: dto.email.toLowerCase() },
     });
 
-    if (existe) {
-      throw new ConflictException('E-mail já cadastrado');
-    }
+    if (existe) throw new ConflictException('E-mail já cadastrado');
 
     const senhaHash = await bcrypt.hash(dto.password, 12);
 
@@ -135,10 +133,7 @@ export class AuthService {
   private generateRefreshToken(userId: string): string {
     const token = randomUUID();
     this.refreshTokenBlacklist.add(token);
-
-    // Expira em 7 dias
     setTimeout(() => this.refreshTokenBlacklist.delete(token), 7 * 24 * 60 * 60 * 1000);
-
     return token;
   }
 
@@ -149,8 +144,6 @@ export class AuthService {
 
     this.refreshTokenBlacklist.delete(oldToken);
 
-    // Em produção: buscar usuário pelo token no Redis
-    // Aqui simplificado: aceita qualquer token válido
     const usuario = await this.prisma.usuario.findFirst({
       where: { ativo: true },
       select: { id: true, email: true, tipo: true, controladoraId: true },
@@ -202,15 +195,12 @@ export class AuthService {
   // ====================== MFA – HABILITAR ======================
   async enableMfa(userId: string) {
     const usuario = await this.prisma.usuario.findUnique({ where: { id: userId } });
-
     if (!usuario) throw new BadRequestException('Usuário não encontrado');
 
     const secret = authenticator.generateSecret();
     const otpauth = authenticator.keyuri(usuario.email, 'Guardião LGPD', secret);
-
     const qrCode = await qrcode.toDataURL(otpauth);
 
-    // Salva secret temporariamente
     await this.prisma.usuario.update({
       where: { id: userId },
       data: { mfaSecretTemp: secret },
@@ -226,14 +216,10 @@ export class AuthService {
       select: { mfaSecretTemp: true },
     });
 
-    if (!usuario?.mfaSecretTemp) {
-      throw new BadRequestException('MFA não foi iniciado');
-    }
+    if (!usuario?.mfaSecretTemp) throw new BadRequestException('MFA não iniciado');
 
     const isValid = authenticator.check(code, usuario.mfaSecretTemp);
-    if (!isValid) {
-      throw new UnauthorizedException('Código MFA inválido');
-    }
+    if (!isValid) throw new UnauthorizedException('Código MFA inválido');
 
     await this.prisma.usuario.update({
       where: { id: userId },
@@ -253,14 +239,10 @@ export class AuthService {
       select: { mfaSecret: true },
     });
 
-    if (!usuario?.mfaSecret) {
-      throw new BadRequestException('MFA não está ativo');
-    }
+    if (!usuario?.mfaSecret) throw new BadRequestException('MFA não ativo');
 
     const isValid = authenticator.check(code, usuario.mfaSecret);
-    if (!isValid) {
-      throw new UnauthorizedException('Código inválido');
-    }
+    if (!isValid) throw new UnauthorizedException('Código inválido');
 
     await this.prisma.usuario.update({
       where: { id: userId },
