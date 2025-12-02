@@ -1,254 +1,215 @@
-// src/modules/auth/auth.service.ts
-import {
-  Injectable,
-  UnauthorizedException,
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Logger,
-} from '@nestjs/common';
+// src/modules/auth/auth.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../../prisma/prisma.service';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { AuthService } from './auth.service';
 import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
-import * as qrcode from 'qrcode';
-import { randomUUID } from 'crypto';
 
-interface JwtPayload {
-  sub: string;
-  email: string;
-  tipo: string;
-  controladoraId?: string;
-}
+jest.mock('bcrypt');
+jest.mock('otplib');
 
-@Injectable()
-export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-  private readonly refreshTokenBlacklist = new Set<string>(); // Em produção: use Redis
+describe('AuthService - Unit Tests', () => {
+  let service: AuthService;
+  let prisma: PrismaService;
+  let jwtService: JwtService;
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService,
-  ) {}
+  const mockPrisma = {
+    usuario: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      findFirst: jest.fn(),
+    },
+  };
 
-  // ====================== LOGIN ======================
-  async login(dto: LoginDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: dto.email.toLowerCase() },
-      select: {
-        id: true,
-        nome: true,
-        email: true,
-        senhaHash: true,
-        tipo: true,
-        controladoraId: true,
+  const mockJwtService = {
+    sign: jest.fn(),
+  };
+
+  const mockConfigService = {
+    get: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
+      ],
+    }).compile();
+
+    service = module.get<AuthService>(AuthService);
+    prisma = module.get<PrismaService>(PrismaService);
+    jwtService = module.get<JwtService>(JwtService);
+
+    jest.clearAllMocks();
+  });
+
+  describe('login()', () => {
+    it('deve fazer login com sucesso quando credenciais corretas', async () => {
+      const mockUser = {
+        id: 'usr_123',
+        email: 'dpo@teste.com',
+        nome: 'DPO Teste',
+        senhaHash: 'hashed-password',
+        tipo: 'DPO',
+        controladoraId: 'ctrl_001',
         ativo: true,
-        mfaSecret: true,
         termoConfidAssinado: true,
-        termoValidade: true,
-      },
-    });
-
-    if (!usuario || !usuario.ativo) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    const senhaValida = await bcrypt.compare(dto.password, usuario.senhaHash);
-    if (!senhaValida) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    // Verifica termo de confidencialidade
-    if (!usuario.termoConfidAssinado || (usuario.termoValidade && new Date(usuario.termoValidade) < new Date())) {
-      throw new ForbiddenException('Termo de confidencialidade pendente ou vencido');
-    }
-
-    // Atualiza último login
-    await this.prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { ultimoLogin: new Date() },
-    });
-
-    // MFA obrigatório se habilitado
-    if (usuario.mfaSecret) {
-      return {
-        mfaRequired: true,
-        message: 'Código MFA necessário',
+        mfaSecret: null,
       };
-    }
 
-    const payload: JwtPayload = {
-      sub: usuario.id,
-      email: usuario.email,
-      tipo: usuario.tipo,
-      controladoraId: usuario.controladoraId,
-    };
+      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockJwtService.sign.mockReturnValue('jwt-access-token');
+      (global as any).crypto.randomUUID = jest.fn(() => 'refresh-token-uuid');
 
-    return {
-      accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
-      refreshToken: this.generateRefreshToken(usuario.id),
-      user: {
-        id: usuario.id,
-        nome: usuario.nome,
-        email: usuario.email,
-        tipo: usuario.tipo,
-        controladoraId: usuario.controladoraId,
-        mfaEnabled: !!usuario.mfaSecret,
-      },
-    };
-  }
+      const result = await service.login({
+        email: 'dpo@teste.com',
+        password: 'Senha@2025',
+      });
 
-  // ====================== REGISTER ======================
-  async register(dto: RegisterDto) {
-    const existe = await this.prisma.usuario.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      expect(result.accessToken).toBe('jwt-access-token');
+      expect(result.refreshToken).toBe('refresh-token-uuid');
+      expect(result.user.email).toBe('dpo@teste.com');
+      expect(result.user.mfaEnabled).toBe(false);
     });
 
-    if (existe) throw new ConflictException('E-mail já cadastrado');
-
-    const senhaHash = await bcrypt.hash(dto.password, 12);
-
-    const usuario = await this.prisma.usuario.create({
-      data: {
-        nome: dto.nome.trim(),
-        email: dto.email.toLowerCase(),
-        senhaHash,
-        tipo: dto.tipo || 'COLABORADOR',
-        controladoraId: dto.controladoraId,
+    it('deve exigir MFA quando mfaSecret existe', async () => {
+      const mockUser = {
+        id: 'usr_123',
+        email: 'dpo@teste.com',
+        senhaHash: 'hashed',
         ativo: true,
-        termoConfidAssinado: false,
-      },
-      select: { id: true, nome: true, email: true, tipo: true },
+        termoConfidAssinado: true,
+        mfaSecret: 'JBSWY3DPEHPK3PXP',
+      };
+
+      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      const result = await service.login({
+        email: 'dpo@teste.com',
+        password: 'Senha@2025',
+      });
+
+      expect(result.mfaRequired).toBe(true);
+      expect(result.message).toBe('Código MFA necessário');
     });
 
-    this.logger.log(`Novo usuário criado: ${usuario.email} (${usuario.tipo})`);
+    it('deve rejeitar senha incorreta', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue({ senhaHash: 'hash' });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-    return usuario;
-  }
+      await expect(
+        service.login({ email: 'dpo@teste.com', password: 'errada' }),
+      ).rejects.toThrow('Credenciais inválidas');
+    });
+  });
 
-  // ====================== REFRESH TOKEN ======================
-  private generateRefreshToken(userId: string): string {
-    const token = randomUUID();
-    this.refreshTokenBlacklist.add(token);
-    setTimeout(() => this.refreshTokenBlacklist.delete(token), 7 * 24 * 60 * 60 * 1000);
-    return token;
-  }
+  describe('register()', () => {
+    it('deve criar usuário com sucesso', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+      mockPrisma.usuario.create.mockResolvedValue({
+        id: 'usr_new',
+        nome: 'Novo Usuário',
+        email: 'novo@teste.com',
+        tipo: 'COLABORADOR',
+      });
 
-  async refreshToken(oldToken: string) {
-    if (!this.refreshTokenBlacklist.has(oldToken)) {
-      throw new UnauthorizedException('Refresh token inválido ou expirado');
-    }
+      const result = await service.register({
+        nome: 'Novo Usuário',
+        email: 'novo@teste.com',
+        password: 'Senha@2025',
+        tipo: 'COLABORADOR',
+        controladoraId: 'ctrl_001',
+      });
 
-    this.refreshTokenBlacklist.delete(oldToken);
-
-    const usuario = await this.prisma.usuario.findFirst({
-      where: { ativo: true },
-      select: { id: true, email: true, tipo: true, controladoraId: true },
+      expect(result.email).toBe('novo@teste.com');
+      expect(mockPrisma.usuario.create).toHaveBeenCalled();
     });
 
-    if (!usuario) throw new UnauthorizedException();
+    it('deve rejeitar e-mail duplicado', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue({ email: 'existe@teste.com' });
 
-    const payload: JwtPayload = {
-      sub: usuario.id,
-      email: usuario.email,
-      tipo: usuario.tipo,
-      controladoraId: usuario.controladoraId,
-    };
+      await expect(
+        service.register({
+          nome: 'Teste',
+          email: 'existe@teste.com',
+          password: 'Senha@2025',
+          tipo: 'COLABORADOR',
+          controladoraId: 'ctrl_001',
+        }),
+      ).rejects.toThrow('E-mail já cadastrado');
+    });
+  });
 
-    return {
-      accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
-      refreshToken: this.generateRefreshToken(usuario.id),
-    };
-  }
+  describe('enableMfa()', () => {
+    it('deve gerar QR Code e secret', async () => {
+      const mockUser = { id: 'usr_123', email: 'dpo@teste.com' };
+      mockPrisma.usuario.findUnique.mockResolvedValue(mockUser);
+      (authenticator.generateSecret as jest.Mock).mockReturnValue('JBSWY3DPEHPK3PXP');
+      (authenticator.keyuri as jest.Mock).mockReturnValue('otpauth://...');
 
-  async invalidateRefreshToken(token: string) {
-    this.refreshTokenBlacklist.delete(token);
-  }
+      const result = await service.enableMfa('usr_123');
 
-  // ====================== CHANGE PASSWORD ======================
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: userId },
-      select: { senhaHash: true },
+      expect(result.qrCode).toContain('data:image/png;base64');
+      expect(result.secret).toBe('JBSWY3DPEHPK3PXP');
+      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
+        where: { id: 'usr_123' },
+        data: { mfaSecretTemp: 'JBSWY3DPEHPK3PXP' },
+      });
+    });
+  });
+
+  describe('verifyAndActivateMfa()', () => {
+    it('deve ativar MFA com código válido', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue({
+        mfaSecretTemp: 'JBSWY3DPEHPK3PXP',
+      });
+      (authenticator.check as jest.Mock).mockReturnValue(true);
+
+      await expect(
+        service.verifyAndActivateMfa('usr_123', '123456'),
+      ).resolves.toBeUndefined();
+
+      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
+        where: { id: 'usr_123' },
+        data: { mfaSecret: 'JBSWY3DPEHPK3PXP', mfaSecretTemp: null },
+      });
     });
 
-    if (!usuario) throw new BadRequestException('Usuário não encontrado');
+    it('deve rejeitar código inválido', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue({
+        mfaSecretTemp: 'JBSWY3DPEHPK3PXP',
+      });
+      (authenticator.check as jest.Mock).mockReturnValue(false);
 
-    const senhaAtualValida = await bcrypt.compare(currentPassword, usuario.senhaHash);
-    if (!senhaAtualValida) {
-      throw new UnauthorizedException('Senha atual incorreta');
-    }
-
-    const novaHash = await bcrypt.hash(newPassword, 12);
-
-    await this.prisma.usuario.update({
-      where: { id: userId },
-      data: { senhaHash: novaHash },
+      await expect(
+        service.verifyAndActivateMfa('usr_123', '000000'),
+      ).rejects.toThrow('Código MFA inválido');
     });
+  });
 
-    this.logger.log(`Senha alterada para usuário ${userId}`);
-  }
+  describe('changePassword()', () => {
+    it('deve alterar senha com sucesso', async () => {
+      mockPrisma.usuario.findUnique.mockResolvedValue({ senhaHash: 'old-hash' });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
-  // ====================== MFA – HABILITAR ======================
-  async enableMfa(userId: string) {
-    const usuario = await this.prisma.usuario.findUnique({ where: { id: userId } });
-    if (!usuario) throw new BadRequestException('Usuário não encontrado');
+      await expect(
+        service.changePassword('usr_123', 'SenhaAtual@2025', 'NovaSenha@2025!'),
+      ).resolves.toBeUndefined();
 
-    const secret = authenticator.generateSecret();
-    const otpauth = authenticator.keyuri(usuario.email, 'Guardião LGPD', secret);
-    const qrCode = await qrcode.toDataURL(otpauth);
-
-    await this.prisma.usuario.update({
-      where: { id: userId },
-      data: { mfaSecretTemp: secret },
+      expect(mockPrisma.usuario.update).toHaveBeenCalledWith({
+        where: { id: 'usr_123' },
+        data: { senhaHash: 'new-hashed-password' },
+      });
     });
-
-    return { qrCode, secret, otpauth };
-  }
-
-  // ====================== MFA – VERIFICAR E ATIVAR ======================
-  async verifyAndActivateMfa(userId: string, code: string) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: userId },
-      select: { mfaSecretTemp: true },
-    });
-
-    if (!usuario?.mfaSecretTemp) throw new BadRequestException('MFA não iniciado');
-
-    const isValid = authenticator.check(code, usuario.mfaSecretTemp);
-    if (!isValid) throw new UnauthorizedException('Código MFA inválido');
-
-    await this.prisma.usuario.update({
-      where: { id: userId },
-      data: {
-        mfaSecret: usuario.mfaSecretTemp,
-        mfaSecretTemp: null,
-      },
-    });
-
-    this.logger.log(`MFA ativado para usuário ${userId}`);
-  }
-
-  // ====================== MFA – DESABILITAR ======================
-  async disableMfa(userId: string, code: string) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: userId },
-      select: { mfaSecret: true },
-    });
-
-    if (!usuario?.mfaSecret) throw new BadRequestException('MFA não ativo');
-
-    const isValid = authenticator.check(code, usuario.mfaSecret);
-    if (!isValid) throw new UnauthorizedException('Código inválido');
-
-    await this.prisma.usuario.update({
-      where: { id: userId },
-      data: { mfaSecret: null },
-    });
-
-    this.logger.log(`MFA desativado para usuário ${userId}`);
-  }
-}
+  });
+});

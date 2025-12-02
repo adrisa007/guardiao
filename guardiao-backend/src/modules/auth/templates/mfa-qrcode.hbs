@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ative a Autenticação de Dois Fatores – Guardião LGPD</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f5f7fa;
+      margin: 0;
+      padding: 0;
+      color: #333333;
+    }
+    .container {
+      max-width: 640px;
+      margin: 30px auto;
+      background-color: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+      color: white;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .content {
+      padding: 40px 30px;
+      line-height: 1.7;
+      text-align: center;
+    }
+    .qrcode {
+      margin: 30px auto;
+      padding: 20px;
+      background-color: #f8fafc;
+      border-radius: 12px;
+      max-width: 280px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .qrcode img {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+    .secret {
+      background-color: #e0f2fe;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 18px;
+      letter-spacing: 2px;
+      margin: 20px 0;
+      word-break: break-all;
+    }
+    .backup-codes {
+      background-color: #fef3c7;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 30px 0;
+      text-align: left;
+    }
+    .backup-codes h3 {
+      margin-top: 0;
+      color: #92400e;
+    }
+    .codes {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+    }
+    .btn {
+      display: inline-block;
+      background-color: #3b82f6;
+      color: white;
+      padding: 14px 32px;
+      margin: 20px 0;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .footer {
+      background-color: #1e293b;
+      color: #94a3b8;
+      padding: 30px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .highlight {
+      background-color: #dbeafe;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Cabeçalho -->
+    <div class="header">
+      <h1>Guardião LGPD</h1>
+      <p style="margin: 10px 0 0; opacity: 0.95; font-size: 18px;">
+        Ative a Autenticação de Dois Fatores (MFA)
+      </p>
+    </div>
+
+    <!-- Conteúdo -->
+    <div class="content">
+      <p>Olá <strong>{{nome}}</strong>,</p>
+
+      <p>Você solicitou a ativação da autenticação de dois fatores (MFA) em sua conta do Guardião LGPD.</p>
+
+      <p><strong>Esta medida aumenta significativamente a segurança da sua conta e dos dados tratados.</strong></p>
+
+      <h2 style="color: #1e40af;">1. Escaneie o QR Code</h2>
+      <p>Use um aplicativo autenticador como:</p>
+      <ul style="text-align: left; max-width: 400px; margin: 0 auto;">
+        <li>Google Authenticator</li>
+        <li>Microsoft Authenticator</li>
+        <li>Authy</li>
+        <li>1Password</li>
+      </ul>
+
+      <div class="qrcode">
+        {{{qrCode}}}
+      </div>
+
+      <p>Ou, se preferir, insira manualmente esta chave:</p>
+      <div class="secret">{{secret}}</div>
+
+      <h2 style="color: #1e40af;">2. Códigos de Backup (Guarde com segurança!)</h2>
+      <div class="backup-codes">
+        <h3>Guarde estes códigos em local seguro</h3>
+        <p>Você pode usá-los caso perca acesso ao aplicativo autenticador.</p>
+        <div class="codes">
+          {{#each backupCodes}}
+            <div>{{this}}</div>
+          {{/each}}
+        </div>
+        <p style="margin-top: 16px; font-size: 14px; color: #92400e;">
+          <strong>Cada código pode ser usado apenas uma vez</strong>
+        </p>
+      </div>
+
+      <p>Após escanear o QR Code ou inserir a chave, volte ao sistema e confirme o código gerado.</p>
+
+      <a href="{{appUrl}}" class="btn">Voltar ao Guardião LGPD</a>
+
+      <hr style="margin: 40px 0; border: none; border-top: 1px solid #e2e8f0;">
+
+      <p style="font-size: 14px; color: #64748b;">
+        Esta é uma medida de segurança obrigatória para todos os usuários com acesso a dados pessoais.<br>
+        Em caso de dúvidas, entre em contato com o DPO da sua empresa.
+      </p>
+    </div>
+
+    <!-- Rodapé -->
+    <div class="footer">
+      <p><strong>Guardião LGPD v12.6</strong> • Plataforma Oficial de Conformidade</p>
+      <p>© 2025 PoderGov Tecnologia Ltda. Todos os direitos reservados.</p>
+      <p style="margin-top: 16px; font-size: 12px;">
+        Este é um e-mail automático. Não responda diretamente.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
