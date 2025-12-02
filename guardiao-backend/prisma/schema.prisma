@@ -38,7 +38,7 @@ model Usuario {
   mfaSecret            String?
   termoConfidAssinado  Boolean   @default(false)
   termoDataAssinatura  DateTime?
-  termoValidade        Date?
+  termoValidade        DateTime?
   ultimoLogin          DateTime?
   ativo                Boolean   @default(true)
   createdAt            DateTime  @default(now())
@@ -54,6 +54,7 @@ model Usuario {
   logsConsulta         LogConsultaPrestadorCnpj[]
   incidentesRegistrados IncidenteSeguranca[] @relation("responsavelRegistro")
   ripdsElaborados      RipdDpia[] @relation("elaborador")
+  auditorias           AuditoriaGlobal[]
 }
 
 // =====================================================
@@ -75,7 +76,7 @@ model Titular {
   usuarioId     String?   @unique
   usuario       Usuario?  @relation(fields: [usuarioId], references: [id])
   cpf           String    @unique @db.Char(11)
-  dataNascimento Date?
+  dataNascimento DateTime?
   menorIdade    Boolean   @default(false)
 
   consentimentos Consentimento[]
@@ -92,8 +93,8 @@ model Prestador {
   razaoSocial     String
   cnpj            String    @db.Char(14)
   escopoTratamento String?
-  dataInicio      Date
-  dataFim         Date?
+  dataInicio      DateTime
+  dataFim         DateTime?
   statusAprovacao String    @default("PENDENTE")
 
   funcionarios    FuncionarioPrestador[]
@@ -104,7 +105,7 @@ model FuncionarioPrestador {
   id                    String    @id @default(uuid())
   prestadorId           String
   prestador             Prestador @relation(fields: [prestadorId], references: [id])
-  usuarioId             String
+  usuarioId             String    @unique
   usuario               Usuario   @relation(fields: [usuarioId], references: [id])
   termoSolidarioAssinado Boolean  @default(false)
   dataAssinatura        DateTime?
@@ -185,7 +186,7 @@ model DescarteDados {
   titular        Titular   @relation(fields: [titularId], references: [id])
   categoria      String
   status         String    @default("ATIVO")
-  dataAgendada  Date?
+  dataAgendada  DateTime?
   dataExecucao   DateTime?
   metodo         String?
   hashComprovante String?
@@ -227,7 +228,7 @@ model RipdDpia {
   elaborador          Usuario   @relation("elaborador", fields: [elaboradorId], references: [id])
   aprovadorId         String?
   dataAprovacao       DateTime?
-  revisaoAnual        Date?
+  revisaoAnual        DateTime?
   anexos              String[]
   hashRipd               String    @unique
 }
@@ -238,8 +239,8 @@ model TermoConfidencialidade {
   tipoUsuario            String    // DPO, COLABORADOR, PRESTADOR
   conteudo               String
   hashConteudo           String    @unique
-  dataPublicacao         Date
-  dataExpiracao          Date?
+  dataPublicacao         DateTime
+  dataExpiracao          DateTime?
   responsabilidadeSolidaria Boolean @default(false)
   ativo                  Boolean   @default(true)
 
@@ -254,7 +255,7 @@ model AssinaturaTermo {
   usuario      Usuario   @relation(fields: [usuarioId], references: [id])
   ipAssinatura String
   dataAssinatura DateTime @default(now())
-  dataValidade   Date
+  dataValidade   DateTime
   revogado       Boolean   @default(false)
   hashAssinatura String    @unique
 

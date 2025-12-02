@@ -1,20 +1,106 @@
 {
+  "$schema": "https://json.schemastore.org/vercel",
   "version": 2,
-  "builds": [
+  "name": "guardiao-lgpd",
+  "public": false,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "redirects": [
     {
-      "src": "src/main.ts",
-      "use": "@vercel/node"
+      "source": "/api",
+      "destination": "/api/health",
+      "permanent": false
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "src/main.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/swagger",
+      "destination": "/api/swagger"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Authorization, Content-Type, X-Requested-With"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
     }
   ],
   "functions": {
-    "src/main.ts": {
-      "maxDuration": 30
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "runtime": "nodejs20.x"
+    }
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production",
+      "ENABLE_VC_BUILD": "1"
+    }
+  },
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "devCommand": "npm run start:dev",
+  "installCommand": "npm ci",
+  "framework": null,
+  "regions": ["gru1"],
+  "crons": [
+    {
+      "path": "/api/cron/daily-backup",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/clean-temp-files",
+      "schedule": "0 5 * * 0"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "git": {
+    "deploymentEnabled": {
+      "production": true,
+      "preview": true
     }
   }
 }

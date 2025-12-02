@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Guardião v12.6 – Development & Test",
+
+  "compilerOptions": {
+    /* ==================== BASE & HERANÇA ==================== */
+    "target": "ES2022",
+    "module": "CommonJS",
+    "lib": ["ES2023"],
+
+    /* ==================== DIRETÓRIOS ==================== */
+    "baseUrl": ".",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./.tsbuildinfo",
+
+    /* ==================== TIPAGEM RÍGIDA (OBRIGATÓRIO ANPD) ==================== */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    /* ==================== COMPATIBILIDADE & INTEROP ==================== */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* ==================== PATH ALIASES (Padrão PoderGov) ==================== */
+    "paths": {
+      "@prisma/*": ["prisma/*"],
+      "@modules/*": ["src/modules/*"],
+      "@common/*": ["src/common/*"],
+      "@config/*": ["src/config/*"],
+      "@utils/*": ["src/utils/*"],
+      "@guards/*": ["src/guards/*"],
+      "@pipes/*": ["src/pipes/*"],
+      "@interceptors/*": ["src/interceptors/*"],
+      "@decorators/*": ["src/decorators/*"],
+      "@entities/*": ["src/entities/*"]
+    },
+
+    /* ==================== EMISSÃO & DEBUG ==================== */
+    "sourceMap": true,
+    "inlineSourceMap": false,
+    "removeComments": false,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+
+    /* ==================== EXTRAS ÚTEIS ==================== */
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "preserveConstEnums": true,
+    "noEmitOnError": false
+  },
+
+  "include": [
+    "src/**/*",
+    "prisma/**/*",
+    "tests/**/*",
+    "**/*.spec.ts",
+    "**/*.e2e-spec.ts",
+    "nest-cli.json"
+  ],
+
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    ".vercel",
+    ".output"
+  ]
+}

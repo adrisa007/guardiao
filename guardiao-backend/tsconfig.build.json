@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Guardião v12.6 – Build Production",
+
+  "extends": "./tsconfig.json",
+
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "tests",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/**/*.e2e-spec.ts",
+    "coverage",
+    ".jest",
+    ".vscode",
+    ".idea"
+  ],
+
+  "include": [
+    "src/**/*",
+    "prisma/**/*"
+  ],
+
+  "compilerOptions": {
+    /* ==================== PRODUÇÃO OBRIGATÓRIA ==================== */
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "removeComments": true,
+    "sourceMap": false,
+    "inlineSourceMap": false,
+    "noEmitOnError": true,
+    "deleteOutDir": true,
+
+    /* ==================== PERFORMANCE & SEGURANÇA ==================== */
+    "incremental": false,
+    "tsBuildInfoFile": null,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "stripInternal": true,
+
+    /* ==================== COMPATIBILIDADE SERVERLESS ==================== */
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    /* ==================== TIPAGEM RIGOROSA (ANPD 2025) ==================== */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+
+    /* ==================== PATH ALIAS (obrigatório no Guardião) ==================== */
+    "baseUrl": ".",
+    "paths": {
+      "@prisma/*": ["prisma/*"],
+      "@modules/*": ["src/modules/*"],
+      "@common/*": ["src/common/*"],
+      "@config/*": ["src/config/*"],
+      "@utils/*": ["src/utils/*"],
+      "@guards/*": ["src/guards/*"],
+      "@pipes/*": ["src/pipes/*"],
+      "@interceptors/*": ["src/interceptors/*"]
+    }
+  }
+}
