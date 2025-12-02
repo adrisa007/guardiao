@@ -15,6 +15,7 @@
   "dependencies": {
     "@nestjs/jwt": "^11.0.1",
     "@nestjs/passport": "^11.0.5",
+    "@nestjs/swagger": "^11.2.3",
     "@prisma/client": "^7.0.1",
     "@vercel/postgres": "^0.10.0",
     "bcrypt": "^6.0.0",
@@ -22,6 +23,14 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "prisma": "^6.19.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/supertest": "^6.0.3",
+    "jest-mock-extended": "^4.0.0",
+    "supertest": "^7.1.4"
   }
 }
