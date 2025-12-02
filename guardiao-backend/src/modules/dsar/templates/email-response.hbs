@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resposta à sua solicitação LGPD – Guardião</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 0;
+      color: #333333;
+    }
+    .container {
+      max-width: 680px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #1e40af, #3b82f6);
+      color: white;
+      padding: 32px 40px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+    }
+    .content {
+      padding: 40px;
+      line-height: 1.7;
+    }
+    .protocolo {
+      background-color: #f0f9ff;
+      border-left: 5px solid #0ea5e9;
+      padding: 16px 20px;
+      margin: 24px 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .status {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 50px;
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+    .status.respondido { background-color: #dcfce7; color: #166534; }
+    .status.indeferido { background-color: #fee2e2; color: #991b1b; }
+    .status.analise { background-color: #fef3c7; color: #92400e; }
+    .footer {
+      background-color: #1e293b;
+      color: #94a3b8;
+      padding: 32px 40px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .btn {
+      display: inline-block;
+      background-color: #3b82f6;
+      color: white;
+      padding: 14px 28px;
+      margin: 20px 0;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .anexo {
+      background-color: #f8fafc;
+      border: 1px dashed #94a3b8;
+      padding: 20px;
+      text-align: center;
+      margin: 24px 0;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Cabeçalho -->
+    <div class="header">
+      <h1>Guardião LGPD</h1>
+      <p style="margin: 12px 0 0; opacity: 0.9;">Resposta à sua solicitação de direitos</p>
+    </div>
+
+    <!-- Conteúdo -->
+    <div class="content">
+      <p>Prezado(a) <strong>{{titularNome}}</strong>,</p>
+
+      <p>Recebemos sua solicitação de direitos conforme a Lei Geral de Proteção de Dados (LGPD – Lei nº 13.709/2018).</p>
+
+      <div class="protocolo">
+        Protocolo: <strong>{{protocolo}}</strong><br>
+        Tipo de solicitação: <strong>{{tipoDireitoFormatado}}</strong><br>
+        Data da solicitação: {{dataSolicitacao}}
+      </div>
+
+      <p><strong>Status atual:</strong></p>
+      <span class="status {{statusClass}}">{{status}}</span>
+
+      <h3 style="color: #1e40af; margin-top: 32px;">Resposta do Encarregado de Proteção de Dados (DPO):</h3>
+      <p style="background-color: #f8fafc; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+        {{{respostaDpo}}}
+      </p>
+
+      {{#if anexoUrl}}
+      <div class="anexo">
+        <p>Arquivo(s) em anexo com as informações solicitadas:</p>
+        <a href="{{anexoUrl}}" class="btn" target="_blank">
+          Baixar Arquivo(s)
+        </a>
+        <p><small>Link válido por 30 dias • Tamanho: {{anexoTamanho}}</small></p>
+      </div>
+      {{else if anexoPath}}
+      <div class="anexo">
+        <p>O arquivo foi enviado em anexo a este e-mail.</p>
+      </div>
+      {{/if}}
+
+      {{#if motivoIndeferimento}}
+      <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 24px 0; border-radius: 8px;">
+        <strong>Motivo do indeferimento:</strong><br>
+        {{motivoIndeferimento}}
+      </div>
+      {{/if}}
+
+      <hr style="margin: 40px 0; border: none; border-top: 1px solid #e2e8f0;">
+
+      <p>Em caso de dúvidas, responda este e-mail ou acesse seu portal:</p>
+      <p style="text-align: center;">
+        <a href="https://app.guardiao.com.br/portal" class="btn">Acessar Meu Portal LGPD</a>
+      </p>
+
+      <p>Atenciosamente,<br>
+      <strong>{{dpoNome}}</strong><br>
+      Encarregado de Proteção de Dados (DPO)<br>
+      {{empresaNome}} – CNPJ {{empresaCnpj}}</p>
+    </div>
+
+    <!-- Rodapé -->
+    <div class="footer">
+      <p><strong>Guardião LGPD v12.6</strong> • Plataforma Oficial de Conformidade</p>
+      <p>© 2025 PoderGov Tecnologia Ltda. Todos os direitos reservados.</p>
+      <p style="margin-top: 16px; font-size: 12px;">
+        Este é um e-mail automático. Por favor, não responda diretamente.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
